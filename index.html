@@ -29,6 +29,11 @@
   .area-retirement polygon { fill: var(--retirement); }
   .area-brokerage polygon { fill: var(--brokerage); }
   .area-condo polygon { fill: var(--condo); }
+  .band { fill: var(--brokerage); opacity: 0.5; }
+  .median { fill: none; stroke: var(--retirement); stroke-width: 2; }
+  .legend .l-band::before { background: var(--brokerage); opacity: 0.6; }
+  .legend .l-median::before { background: var(--retirement); height: 2px; vertical-align: 3px; }
+  .stale { opacity: 0.5; transition: opacity 0.2s; }
   .pinned { fill: none; stroke: var(--pinned); stroke-width: 2; stroke-dasharray: 5 4; }
   .mark { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 2 3; }
   .mark-label { font-size: 10px; fill: var(--warn); }
@@ -82,13 +87,15 @@
   <section class="card">
     <div id="chart"></div>
     <div class="legend">
-      <span class="l-ret">401k</span><span class="l-brok">Savings and brokerage</span><span class="l-condo">Condo equity</span><span class="l-pin" id="legend-pin" hidden>Pinned scenario</span>
+      <span id="legend-stacked"><span class="l-ret">401k</span> <span class="l-brok">Savings and brokerage</span> <span class="l-condo">Condo equity</span></span>
+      <span id="legend-band" hidden><span class="l-band">Middle 80% of histories</span> <span class="l-median">Typical</span></span>
+      <span class="l-pin" id="legend-pin" hidden>Pinned scenario</span>
     </div>
   </section>
   <section class="card" id="knobs"></section>
   <section class="card" id="details"></section>
   <footer>Everything you type stays on this phone. <button class="link" id="reset">Reset to demo numbers</button></footer>
 </main>
-<script type="module" src="./src/ui.js?v=2"></script>
+<script type="module" src="./src/ui.js?v=3"></script>
 </body>
 </html>

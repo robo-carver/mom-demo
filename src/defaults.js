@@ -48,6 +48,7 @@ export const DEMO_ASSUMPTIONS = {
   inflation: 0.03,
   medicalInflationExtra: 0.02,
   irmaa: true,
+  montecarlo: { runs: 300, confidence: 0.9 },
   returns: {
     pessimistic: { bond: 0.0, stock: 0.02, condo: -0.01, condoCostsExtra: 0.01 },
     expected: { bond: 0.015, stock: 0.05, condo: 0.01, condoCostsExtra: 0 },

@@ -1,4 +1,5 @@
-import { solveSpend, saleTaxEstimate } from './model.js';
+import { saleTaxEstimate } from './model.js';
+import { solve } from './compute.js';
 import { renderChart } from './chart.js';
 import { DEMO_INPUTS, DEMO_SCENARIO, DEMO_ASSUMPTIONS, CURRENT_YEAR } from './defaults.js';
 
@@ -30,6 +31,34 @@ function setPath(obj, path, value) {
 }
 
 const state = loadState();
+
+// The math runs in a worker so sliders stay smooth. Only the newest request
+// gets rendered; stale answers are dropped.
+const solver = (() => {
+  let worker = null;
+  try { worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); } catch { /* fall back to main thread */ }
+  let latest = 0;
+  const pending = new Map();
+  if (worker) {
+    worker.onmessage = ({ data }) => {
+      const resolve = pending.get(data.id);
+      pending.delete(data.id);
+      if (data.id === latest) resolve(data);
+    };
+  }
+  return (inputs, scenario, assumptions, pinned) => {
+    latest += 1;
+    const id = latest;
+    if (!worker) {
+      return Promise.resolve({ id, result: solve(inputs, scenario, assumptions), pinnedResult: pinned ? solve(inputs, pinned, assumptions) : null });
+    }
+    return new Promise((resolve) => {
+      pending.set(id, resolve);
+      worker.postMessage({ id, inputs, scenario, assumptions, pinned });
+    });
+  };
+})();
+
 let renderQueued = false;
 
 function update(mutate) {
@@ -44,22 +73,36 @@ function update(mutate) {
 
 function describeScenario(s) {
   const condo = { keep: 'keep renting it out', sell: `sell in year ${s.condoYear}`, movein: `move in year ${s.condoYear}` }[s.condoPlan];
-  return `${s.returns} markets, ${condo}, 401k ${s.retirementStockPct}% stocks, to age ${state.inputs.age + s.horizonYears}${s.longTermCare ? ', with care' : ''}`;
+  const markets = s.returns === 'montecarlo' ? 'replayed history' : `${s.returns} markets`;
+  return `${markets}, ${condo}, 401k ${s.retirementStockPct}% stocks, to age ${state.inputs.age + s.horizonYears}${s.longTermCare ? ', with care' : ''}`;
 }
 
-function renderResults() {
+async function renderResults() {
   const { inputs, scenario, assumptions } = state;
-  const result = solveSpend(inputs, scenario, assumptions);
-  const pinnedResult = state.pinned ? solveSpend(inputs, state.pinned, assumptions) : null;
+  renderSaleNote();
+  $('#headline').classList.add('stale');
+  $('#sticky').classList.add('stale');
+  const { result, pinnedResult } = await solver(inputs, scenario, assumptions, state.pinned);
+  $('#headline').classList.remove('stale');
+  $('#sticky').classList.remove('stale');
   renderHeadline(result, pinnedResult);
 
   const marks = [];
   if (scenario.condoPlan !== 'keep') marks.push({ year: scenario.condoYear, label: scenario.condoPlan === 'sell' ? 'sell' : 'move in' });
   if (scenario.longTermCare) marks.push({ year: Math.max(0, scenario.horizonYears - inputs.longTermCare.years), label: 'care' });
-  renderChart($('#chart'), { rows: result.rows, pinnedRows: pinnedResult?.rows, startAge: inputs.age, marks });
+  renderChart($('#chart'), { rows: result.rows, band: result.band, pinned: pinnedResult, startAge: inputs.age, marks });
   $('#legend-pin').hidden = !state.pinned;
+  $('#legend-band').hidden = !result.band;
+  $('#legend-stacked').hidden = !!result.band;
   renderTable(result.rows);
-  renderSaleNote();
+}
+
+function confidenceNote(result) {
+  if (!result.band) return '';
+  const conf = Math.round(state.assumptions.montecarlo.confidence * 100);
+  const share = result.ranOut >= 0.005 ? pct(result.ranOut) : 'fewer than 1%';
+  const dry = result.ranOut > 0 ? ` It runs completely dry in ${share} of them.` : '';
+  return ` Holds up in ${conf}% of ${result.runs} replays of market history since 1928.${dry}`;
 }
 
 function renderSticky(result, pinnedResult) {
@@ -85,7 +128,7 @@ function renderHeadline(result, pinnedResult) {
     const year = result.failYear ?? scenario.horizonYears;
     el.innerHTML = `
       <div class="headline warn">Runs out<small> in year ${year}, age ${inputs.age + year}</small></div>
-      <div class="sub">Even with nothing spent beyond rent and medical. ${scenario.condoPlan === 'keep' ? 'The condo is still owned at that point.' : ''}</div>
+      <div class="sub">Even with nothing spent beyond rent and medical${result.band ? `, in more than ${100 - Math.round(state.assumptions.montecarlo.confidence * 100)}% of replays of market history` : ''}. ${scenario.condoPlan === 'keep' ? 'The condo is still owned at that point.' : ''}</div>
       ${pinnedResult ? pinnedLine(pinnedResult) : ''}`;
     return;
   }
@@ -97,7 +140,7 @@ function renderHeadline(result, pinnedResult) {
   const rentShareLater = rentLater + result.monthlySpend > 0 ? rentLater / (rentLater + result.monthlySpend) : 0;
   el.innerHTML = `
     <div class="headline">${dollars(total)}<small> / month, in today's dollars</small></div>
-    <div class="sub">${rentNow > 0 ? `${dollars(result.monthlySpend)} for everything except rent and medical` : 'For everything except medical'}, through age ${inputs.age + scenario.horizonYears}, with ${scenario.cushionYears} years of cushion left.</div>
+    <div class="sub">${rentNow > 0 ? `${dollars(result.monthlySpend)} for everything except rent and medical` : 'For everything except medical'}, through age ${inputs.age + scenario.horizonYears}, with ${scenario.cushionYears} years of cushion left.${confidenceNote(result)}</div>
     <div class="rent-bar"><div style="width:${rentShareNow * 100}%"></div></div>
     <div class="sub">Rent is ${pct(rentShareNow)} of the budget today${rentLater > 0 ? `, ${pct(rentShareLater)} by the end` : ', and gone once she moves in'}.</div>
     ${pinnedResult ? pinnedLine(pinnedResult) : ''}`;
@@ -182,7 +225,7 @@ function renderKnobs() {
   };
 
   add('Markets', segmented(
-    [['pessimistic', 'Pessimistic'], ['expected', 'Expected'], ['optimistic', 'Optimistic']],
+    [['pessimistic', 'Pessimistic'], ['expected', 'Expected'], ['optimistic', 'Optimistic'], ['montecarlo', 'History']],
     scenario.returns, (v) => update((s) => { s.scenario.returns = v; }),
   ));
 
@@ -321,6 +364,8 @@ const NOTES = `
 <p>Medicare premiums step up when income two years earlier was above about $109,000. A condo sale or a large 401k withdrawal shows up as a premium bump two years later. The plan includes it.</p>
 <h3>Social Security earnings test</h3>
 <p>Until she reaches 67, Social Security withholds $1 for every $2 earned above roughly $24,500 a year from work. The withheld amount comes back as a higher benefit later, so the plan ignores it, but it can pinch the monthly cash flow now.</p>
+<h3>Replay history</h3>
+<p>The fourth markets setting stops assuming one steady return. For each replay it draws a real year at random from 1928 to 2025, with the S&amp;P 500 (with dividends), the 10-year Treasury bond and home prices moving together the way they actually did that year, after inflation. It does that for every year of the plan, runs the whole projection, and finds the most she could have spent in that replay. The headline is the spend that holds up in 90% of the replays, not the average. An average would be right about half the time, which is the wrong bet for a retiree. The chart shows the middle 80% of outcomes as a band and the typical path as a line. The same replays are reused every time, so the number does not wobble as you drag sliders.</p>
 <h3>Simplifications</h3>
 <p>Everything is in today's dollars. Brokerage gains are taxed only when withdrawn, not on yearly dividends. Rental losses are assumed to offset other income. Federal brackets and the standard deduction use 2026 figures, indexed with inflation. The temporary 2025 to 2028 senior deduction is left out. Medical premiums grow 2% faster than inflation by default.</p>`;
 
@@ -367,6 +412,9 @@ function renderDetails() {
     field({ path: 'medicalInflationExtra', label: 'Medical costs grow faster than inflation by', kind: 'pct', root: 'assumptions' }),
     Object.assign(document.createElement('p'), { textContent: 'Yearly returns above inflation, in percent.', className: 'note' }),
     returnsEditor(),
+    Object.assign(document.createElement('p'), { textContent: 'Replay history', className: 'note' }),
+    field({ path: 'montecarlo.runs', label: 'Number of replays', kind: 'int', root: 'assumptions' }),
+    field({ path: 'montecarlo.confidence', label: 'Must hold up in this share of replays', kind: 'pct', root: 'assumptions' }),
   ]));
   el.appendChild(section('Year by year', [Object.assign(document.createElement('div'), { className: 'scroll', id: 'table' })]));
   el.appendChild(section('How the math works', [Object.assign(document.createElement('div'), { className: 'notes', innerHTML: NOTES })]));

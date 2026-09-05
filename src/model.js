@@ -55,7 +55,7 @@ function splitWithdrawal(total, { retirement, brokerage, rmd, lowBracketRoom }) 
   return { fromRetirement, fromBrokerage };
 }
 
-function solveMonotone(f, lo, hi, target, iterations = 60) {
+function solveMonotone(f, lo, hi, target, iterations = 30) {
   for (let i = 0; i < iterations; i += 1) {
     const mid = (lo + hi) / 2;
     if (f(mid) < target) lo = mid; else hi = mid;
@@ -63,9 +63,15 @@ function solveMonotone(f, lo, hi, target, iterations = 60) {
   return hi;
 }
 
-export function project(inputs, scenario, assumptions, monthlySpend) {
-  const { inflation } = assumptions;
+export function fixedRates(scenario, assumptions) {
   const rates = assumptions.returns[scenario.returns];
+  return () => rates;
+}
+
+// `ratesFor(t)` supplies the year's returns; the default repeats the
+// scenario's fixed rates every year.
+export function project(inputs, scenario, assumptions, monthlySpend, ratesFor = fixedRates(scenario, assumptions)) {
+  const { inflation } = assumptions;
   const condo = inputs.condo;
   const rentPaidGrowth = realRate(inputs.rentPaidIncrease, inflation);
   const nominalMortgagePayment = mortgagePayment(condo);
@@ -82,6 +88,7 @@ export function project(inputs, scenario, assumptions, monthlySpend) {
   const rows = [];
 
   for (let t = 0; t < scenario.horizonYears; t += 1) {
+    const rates = ratesFor(t);
     const age = inputs.age + t;
     const phase = condoPhase(scenario, t);
     const deflator = (1 + inflation) ** t;
@@ -207,30 +214,37 @@ function cushionFor(inputs, scenario, monthlySpend, lastRow) {
   return scenario.cushionYears * (monthlySpend * 12 + lastRow.expenses.rentPaid + lastRow.expenses.medical);
 }
 
-export function isSustainable(inputs, scenario, assumptions, monthlySpend) {
-  const rows = project(inputs, scenario, assumptions, monthlySpend);
+export function isSustainable(inputs, scenario, assumptions, monthlySpend, ratesFor) {
+  const rows = project(inputs, scenario, assumptions, monthlySpend, ratesFor);
   const last = rows[rows.length - 1];
   const neverShort = rows.every((r) => r.shortfall === 0);
   return neverShort && last.balances.liquid >= cushionFor(inputs, scenario, monthlySpend, last);
 }
 
 // Highest constant monthly spend (after rent and medical) that never runs
-// short and ends the horizon with the cushion intact.
-export function solveSpend(inputs, scenario, assumptions) {
-  const feasible = (spend) => isSustainable(inputs, scenario, assumptions, spend);
-  if (!feasible(0)) {
-    const rows = project(inputs, scenario, assumptions, 0);
-    const failYear = rows.findIndex((r) => r.shortfall > 0);
-    return { monthlySpend: 0, feasible: false, failYear: failYear === -1 ? null : failYear, rows };
-  }
+// short and ends the horizon with the cushion intact. Returns 0 when even
+// that is out of reach.
+export function maxSustainableSpend(inputs, scenario, assumptions, ratesFor, { iterations = 40, ceiling = 1000 } = {}) {
+  const feasible = (spend) => isSustainable(inputs, scenario, assumptions, spend, ratesFor);
+  if (!feasible(0)) return 0;
   let lo = 0;
-  let hi = 1000;
+  let hi = ceiling;
   while (feasible(hi) && hi < 1e7) hi *= 2;
-  for (let i = 0; i < 40; i += 1) {
+  for (let i = 0; i < iterations; i += 1) {
     const mid = (lo + hi) / 2;
     if (feasible(mid)) lo = mid; else hi = mid;
   }
-  return { monthlySpend: lo, feasible: true, failYear: null, rows: project(inputs, scenario, assumptions, lo) };
+  return lo;
+}
+
+export function solveSpend(inputs, scenario, assumptions) {
+  const monthlySpend = maxSustainableSpend(inputs, scenario, assumptions);
+  const rows = project(inputs, scenario, assumptions, monthlySpend);
+  if (monthlySpend === 0 && !isSustainable(inputs, scenario, assumptions, 0)) {
+    const failYear = rows.findIndex((r) => r.shortfall > 0);
+    return { monthlySpend: 0, feasible: false, failYear: failYear === -1 ? null : failYear, rows };
+  }
+  return { monthlySpend, feasible: true, failYear: null, rows };
 }
 
 // What selling today would cost in tax, and what the primary-residence
