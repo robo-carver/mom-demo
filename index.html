@@ -68,10 +68,14 @@
   .returns-grid input { width: 100%; padding: 6px; font-size: 14px; border: 1px solid var(--line); border-radius: 6px; }
   .notes p { font-size: 14px; margin: 8px 0; }
   .notes h3 { font-size: 14px; margin: 14px 0 4px; }
+  #sticky { position: fixed; top: 0; left: 0; right: 0; z-index: 10; background: var(--card); border-bottom: 1px solid var(--line); padding: 8px 12px; font-size: 20px; font-weight: 700; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  #sticky small { font-size: 13px; font-weight: 400; color: var(--muted); }
+  #sticky .pin-num { font-size: 15px; font-weight: 500; color: var(--muted); white-space: nowrap; }
   footer { font-size: 12px; color: var(--muted); text-align: center; margin-top: 20px; }
 </style>
 </head>
 <body>
+<div id="sticky" hidden></div>
 <main>
   <h1>Retirement scenarios</h1>
   <section class="card" id="headline"></section>

@@ -62,9 +62,25 @@ function renderResults() {
   renderSaleNote();
 }
 
+function renderSticky(result, pinnedResult) {
+  const main = result.feasible
+    ? `${dollars(result.monthlySpend + currentRent())}<small> / month</small>`
+    : `<span class="warn">Runs out<small> in year ${result.failYear ?? state.scenario.horizonYears}</small></span>`;
+  const pinned = pinnedResult
+    ? `<span class="pin-num">pinned ${pinnedResult.feasible ? dollars(pinnedResult.monthlySpend + state.inputs.rentPaidMonthly) : 'runs out'}</span>`
+    : '';
+  $('#sticky').innerHTML = `<span>${main}</span>${pinned}`;
+}
+
+function currentRent() {
+  const { inputs, scenario } = state;
+  return scenario.condoPlan === 'movein' && scenario.condoYear === 0 ? 0 : inputs.rentPaidMonthly;
+}
+
 function renderHeadline(result, pinnedResult) {
   const { inputs, scenario } = state;
   const el = $('#headline');
+  renderSticky(result, pinnedResult);
   if (!result.feasible) {
     const year = result.failYear ?? scenario.horizonYears;
     el.innerHTML = `
@@ -73,7 +89,7 @@ function renderHeadline(result, pinnedResult) {
       ${pinnedResult ? pinnedLine(pinnedResult) : ''}`;
     return;
   }
-  const rentNow = inputs.rentPaidMonthly * (scenario.condoPlan === 'movein' && scenario.condoYear === 0 ? 0 : 1);
+  const rentNow = currentRent();
   const total = result.monthlySpend + rentNow;
   const lastRow = result.rows[result.rows.length - 1];
   const rentShareNow = total > 0 ? rentNow / total : 0;
@@ -361,6 +377,10 @@ $('#reset').addEventListener('click', () => {
   localStorage.removeItem(STORAGE_KEY);
   location.reload();
 });
+
+new IntersectionObserver(([entry]) => {
+  $('#sticky').hidden = entry.isIntersecting;
+}, { threshold: 0 }).observe($('#headline'));
 
 renderKnobs();
 renderDetails();
