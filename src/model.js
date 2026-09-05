@@ -232,3 +232,32 @@ export function solveSpend(inputs, scenario, assumptions) {
   }
   return { monthlySpend: lo, feasible: true, failYear: null, rows: project(inputs, scenario, assumptions, lo) };
 }
+
+// What selling today would cost in tax, and what the primary-residence
+// exclusion would save if she lived there two years first.
+export function saleTaxEstimate(inputs, scenario) {
+  const condo = inputs.condo;
+  const buildingBasis = condo.costBasis * (1 - condo.landShare);
+  const depreciationTaken = Math.min(buildingBasis, (buildingBasis / DEPRECIATION_YEARS) * (CURRENT_YEAR - condo.rentedSinceYear));
+  const net = condo.value * (1 - condo.sellingCostRate);
+  const gain = Math.max(0, net - (condo.costBasis - depreciationTaken));
+  const recapturedDepreciation = Math.min(gain, depreciationTaken);
+  const capitalGains = gain - recapturedDepreciation;
+  const baseline = {
+    age: inputs.age,
+    wages: inputs.employment.monthly * 12 * (scenario.employmentEndYear > 0 ? 1 : 0),
+    selfEmployment: inputs.selfEmployment.monthly * 12 * (scenario.selfEmploymentEndYear > 0 ? 1 : 0),
+    socialSecurity: inputs.socialSecurityMonthly * 12,
+  };
+  const without = federalTax(baseline).tax;
+  const withSale = federalTax({ ...baseline, capitalGains, recapturedDepreciation }).tax;
+  const withExclusion = federalTax({ ...baseline, capitalGains: Math.max(0, capitalGains - 250000), recapturedDepreciation }).tax;
+  const state = illinoisTax({ resident: false, condoGain: gain });
+  return {
+    gain,
+    recapturedDepreciation,
+    federal: withSale - without,
+    state,
+    exclusionSavings: withSale - withExclusion,
+  };
+}

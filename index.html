@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retirement scenarios</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --card: #fff; --ink: #1f1d1a; --muted: #6b665e; --line: #e2ddd3;
+    --accent: #2f6f5e; --accent-ink: #fff; --warn: #b3412c;
+    --retirement: #2f6f5e; --brokerage: #7fb39e; --condo: #d9b46a; --pinned: #1f1d1a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 12px 12px 60px; }
+  h1 { font-size: 18px; margin: 4px 0 12px; font-weight: 600; }
+  h2 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .headline { font-size: 40px; font-weight: 700; line-height: 1.1; }
+  .headline small { font-size: 16px; font-weight: 400; color: var(--muted); }
+  .sub { color: var(--muted); margin-top: 4px; }
+  .warn { color: var(--warn); }
+  .delta { font-size: 14px; margin-top: 6px; }
+  .rent-bar { height: 8px; border-radius: 4px; background: var(--brokerage); margin: 8px 0 4px; overflow: hidden; }
+  .rent-bar div { height: 100%; background: var(--condo); }
+  svg { width: 100%; height: auto; display: block; }
+  .grid { stroke: var(--line); stroke-width: 1; }
+  .axis { font-size: 10px; fill: var(--muted); }
+  .area-retirement polygon { fill: var(--retirement); }
+  .area-brokerage polygon { fill: var(--brokerage); }
+  .area-condo polygon { fill: var(--condo); }
+  .pinned { fill: none; stroke: var(--pinned); stroke-width: 2; stroke-dasharray: 5 4; }
+  .mark { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 2 3; }
+  .mark-label { font-size: 10px; fill: var(--warn); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .legend .l-ret::before { background: var(--retirement); }
+  .legend .l-brok::before { background: var(--brokerage); }
+  .legend .l-condo::before { background: var(--condo); }
+  .legend .l-pin::before { background: none; border-top: 2px dashed var(--pinned); height: 0; vertical-align: 3px; }
+  .knob { margin: 12px 0; }
+  .knob label, .field label { display: block; font-size: 14px; margin-bottom: 4px; }
+  .knob .value { float: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { flex: 1; padding: 10px 4px; border: 0; background: var(--card); color: var(--ink); font-size: 14px; }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); }
+  button.pin { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--card); color: var(--accent); font-size: 15px; }
+  button.pin.on { background: var(--accent); color: var(--accent-ink); }
+  button.link { border: 0; background: none; color: var(--accent); padding: 0; font-size: 14px; text-decoration: underline; }
+  details { border-top: 1px solid var(--line); }
+  details summary { padding: 12px 0; font-weight: 600; cursor: pointer; list-style: none; }
+  details summary::after { content: "+"; float: right; color: var(--muted); }
+  details[open] summary::after { content: "–"; }
+  .field { margin: 10px 0; }
+  .field input[type=number], .field input[type=text] { width: 100%; padding: 10px; font-size: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+  .field.inline { display: flex; align-items: center; justify-content: space-between; }
+  .field.inline input { width: 120px; }
+  .list-row { display: grid; grid-template-columns: 70px 1fr 1fr 32px; gap: 6px; margin: 6px 0; }
+  .list-row input { padding: 8px; font-size: 15px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+  .list-row button { border: 0; background: none; color: var(--warn); font-size: 18px; }
+  .note { font-size: 14px; color: var(--muted); margin: 8px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 4px 3px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  .scroll { overflow-x: auto; }
+  .returns-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 6px; align-items: center; font-size: 13px; }
+  .returns-grid input { width: 100%; padding: 6px; font-size: 14px; border: 1px solid var(--line); border-radius: 6px; }
+  .notes p { font-size: 14px; margin: 8px 0; }
+  .notes h3 { font-size: 14px; margin: 14px 0 4px; }
+  footer { font-size: 12px; color: var(--muted); text-align: center; margin-top: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Retirement scenarios</h1>
+  <section class="card" id="headline"></section>
+  <section class="card">
+    <div id="chart"></div>
+    <div class="legend">
+      <span class="l-ret">401k</span><span class="l-brok">Savings and brokerage</span><span class="l-condo">Condo equity</span><span class="l-pin" id="legend-pin" hidden>Pinned scenario</span>
+    </div>
+  </section>
+  <section class="card" id="knobs"></section>
+  <section class="card" id="details"></section>
+  <footer>Everything you type stays on this phone. <button class="link" id="reset">Reset to demo numbers</button></footer>
+</main>
+<script type="module" src="./src/ui.js"></script>
+</body>
+</html>

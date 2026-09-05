@@ -149,3 +149,12 @@ test('for any inputs the solver is consistent and the projection is finite', () 
     }
   }), { numRuns: 150 });
 });
+
+test('sale tax estimate separates recapture from gain and values the exclusion', async () => {
+  const { saleTaxEstimate } = await import('../src/model.js');
+  const est = saleTaxEstimate(DEMO_INPUTS, DEMO_SCENARIO);
+  assert.ok(est.gain > 0);
+  assert.ok(est.recapturedDepreciation > 0 && est.recapturedDepreciation < est.gain);
+  assert.ok(est.federal > 0 && est.state > 0);
+  assert.ok(est.exclusionSavings > 0 && est.exclusionSavings <= est.federal);
+});
