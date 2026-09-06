@@ -34,27 +34,52 @@ const state = loadState();
 
 // The math runs in a worker so sliders stay smooth. Only the newest request
 // gets rendered; stale answers are dropped.
+// Browsers without module workers (older Firefox on Android among them) fail
+// asynchronously rather than throwing, so any error or a long silence drops
+// back to computing on the main thread for good.
+const WORKER_TIMEOUT_MS = 6000;
 const solver = (() => {
   let worker = null;
-  try { worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); } catch { /* fall back to main thread */ }
   let latest = 0;
   const pending = new Map();
-  if (worker) {
+
+  const onMainThread = (request) => ({
+    id: request.id,
+    result: solve(request.inputs, request.scenario, request.assumptions),
+    pinnedResult: request.pinned ? solve(request.inputs, request.pinned, request.assumptions) : null,
+  });
+  const abandonWorker = () => {
+    if (!worker) return;
+    worker.terminate();
+    worker = null;
+    for (const [id, { request, resolve, timer }] of pending) {
+      clearTimeout(timer);
+      pending.delete(id);
+      if (id === latest) resolve(onMainThread(request));
+    }
+  };
+
+  try {
+    worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+    worker.onerror = abandonWorker;
+    worker.onmessageerror = abandonWorker;
     worker.onmessage = ({ data }) => {
-      const resolve = pending.get(data.id);
+      const entry = pending.get(data.id);
+      if (!entry) return;
+      clearTimeout(entry.timer);
       pending.delete(data.id);
-      if (data.id === latest) resolve(data);
+      if (data.id === latest) entry.resolve(data);
     };
-  }
+  } catch { worker = null; }
+
   return (inputs, scenario, assumptions, pinned) => {
     latest += 1;
-    const id = latest;
-    if (!worker) {
-      return Promise.resolve({ id, result: solve(inputs, scenario, assumptions), pinnedResult: pinned ? solve(inputs, pinned, assumptions) : null });
-    }
+    const request = { id: latest, inputs, scenario, assumptions, pinned };
+    if (!worker) return Promise.resolve(onMainThread(request));
     return new Promise((resolve) => {
-      pending.set(id, resolve);
-      worker.postMessage({ id, inputs, scenario, assumptions, pinned });
+      const timer = setTimeout(abandonWorker, WORKER_TIMEOUT_MS);
+      pending.set(request.id, { request, resolve, timer });
+      worker.postMessage(request);
     });
   };
 })();
